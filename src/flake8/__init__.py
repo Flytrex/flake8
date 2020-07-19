@@ -18,11 +18,16 @@ if False:  # `typing.TYPE_CHECKING` was introduced in 3.5.2
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.NullHandler())
 
-__version__ = "3.8.3"
+
+def flytrex_version(version):
+    delimiter = "." if "+" in version else "+"
+    return f"{version}{delimiter}flytrex-1"
+
+
+__version__ = flytrex_version("3.8.3")
 __version_info__ = tuple(
     int(i) for i in __version__.split(".") if i.isdigit()
 )
-
 
 # There is nothing lower than logging.DEBUG (10) in the logging library,
 # but we want an extra level to avoid being too verbose when using -vv.
