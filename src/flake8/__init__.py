@@ -21,7 +21,7 @@ LOG.addHandler(logging.NullHandler())
 
 def flytrex_version(version):
     delimiter = "." if "+" in version else "+"
-    return f"{version}{delimiter}flytrex-2"
+    return f"{version}{delimiter}flytrex-3"
 
 
 __version__ = flytrex_version("3.8.3")
