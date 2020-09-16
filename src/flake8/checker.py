@@ -9,7 +9,7 @@ import tokenize
 from typing import Dict, List, Optional, Tuple
 
 try:
-    import multiprocessing
+    import multiprocessing.pool
 except ImportError:
     multiprocessing = None  # type: ignore
 
@@ -262,18 +262,16 @@ class Manager(object):
             results_found += len(results)
         return (results_found, results_reported)
 
-    def run_parallel(self):
+    def run_parallel(self):  # type: () -> None
         """Run the checkers in parallel."""
         # fmt: off
         final_results = collections.defaultdict(list)  # type: Dict[str, List[Tuple[str, int, int, str, Optional[str]]]]  # noqa: E501
-        final_statistics = collections.defaultdict(dict)  # type: Dict[str, Dict[str, None]]  # noqa: E501
+        final_statistics = collections.defaultdict(dict)  # type: Dict[str, Dict[str, int]]  # noqa: E501
         # fmt: on
 
-        try:
-            pool = multiprocessing.Pool(self.jobs, _pool_init)
-        except OSError as oserr:
-            if oserr.errno not in SERIAL_RETRY_ERRNOS:
-                raise
+        pool = _try_initialize_processpool(self.jobs)
+
+        if pool is None:
             self.run_serial()
             return
 
@@ -303,12 +301,12 @@ class Manager(object):
             checker.results = final_results[filename]
             checker.statistics = final_statistics[filename]
 
-    def run_serial(self):
+    def run_serial(self):  # type: () -> None
         """Run the checkers in serial."""
         for checker in self.checkers:
             checker.run_checks()
 
-    def run(self):
+    def run(self):  # type: () -> None
         """Run all the checkers.
 
         This will intelligently decide whether to run the checks in parallel
@@ -566,9 +564,10 @@ class FileChecker(object):
         parens = 0
         statistics = self.statistics
         file_processor = self.processor
+        prev_physical = ""
         for token in file_processor.generate_tokens():
             statistics["tokens"] += 1
-            self.check_physical_eol(token)
+            self.check_physical_eol(token, prev_physical)
             token_type, text = token[0:2]
             processor.log_token(LOG, token)
             if token_type == tokenize.OP:
@@ -576,6 +575,7 @@ class FileChecker(object):
             elif parens == 0:
                 if processor.token_is_newline(token):
                     self.handle_newline(token_type)
+            prev_physical = token[4]
 
         if file_processor.tokens:
             # If any tokens are left over, process them
@@ -611,11 +611,18 @@ class FileChecker(object):
         else:
             self.run_logical_checks()
 
-    def check_physical_eol(self, token):
+    def check_physical_eol(self, token, prev_physical):
+        # type: (processor._Token, str) -> None
         """Run physical checks if and only if it is at the end of the line."""
+        # a newline token ends a single physical line.
         if processor.is_eol_token(token):
-            # Obviously, a newline token ends a single physical line.
-            self.run_physical_checks(token[4])
+            # if the file does not end with a newline, the NEWLINE
+            # token is inserted by the parser, but it does not contain
+            # the previous physical line in `token[4]`
+            if token[4] == "":
+                self.run_physical_checks(prev_physical)
+            else:
+                self.run_physical_checks(token[4])
         elif processor.is_multiline_string(token):
             # Less obviously, a string that contains newlines is a
             # multiline string, either triple-quoted or with internal
@@ -634,9 +641,23 @@ class FileChecker(object):
                     self.run_physical_checks(line + "\n")
 
 
-def _pool_init():
+def _pool_init():  # type: () -> None
     """Ensure correct signaling of ^C using multiprocessing.Pool."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+def _try_initialize_processpool(job_count):
+    # type: (int) -> Optional[multiprocessing.pool.Pool]
+    """Return a new process pool instance if we are able to create one."""
+    try:
+        return multiprocessing.Pool(job_count, _pool_init)
+    except OSError as err:
+        if err.errno not in SERIAL_RETRY_ERRNOS:
+            raise
+    except ImportError:
+        pass
+
+    return None
 
 
 def calculate_pool_chunksize(num_checkers, num_jobs):
