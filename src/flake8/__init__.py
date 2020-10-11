@@ -24,10 +24,11 @@ def flytrex_version(version):
     return f"{version}{delimiter}flytrex-4"
 
 
-__version__ = flytrex_version("3.8.3")
+__version__ = flytrex_version("3.8.4")
 __version_info__ = tuple(
     int(i) for i in __version__.split(".") if i.isdigit()
 )
+
 
 # There is nothing lower than logging.DEBUG (10) in the logging library,
 # but we want an extra level to avoid being too verbose when using -vv.
